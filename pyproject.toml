@@ -1,0 +1,14 @@
+[project]
+name = "MoMaRestServer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "~=3.13.0"
+dependencies = [
+    "fastapi>=0.124.0",
+    "momafksolver",
+    "uvicorn[standard]>=0.38.0",
+]
+
+[tool.uv.sources]
+momafksolver = { path = "../MoMa FK Solver" }
