@@ -2,9 +2,9 @@ import asyncio
 import time
 from pathlib import Path
 
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from MoMaFkSolver.core import FastBVH
 from MoMaFkSolver.player import AnimationPlayer
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from starlette.middleware.cors import CORSMiddleware
 
 # Importations basées sur votre structure de fichiers
@@ -32,7 +32,9 @@ anim_data = FastBVH(str(BVH_PATH))
 
 @app.get("/")
 async def root():
-    return {"message": "MM Server Reforged est en ligne. Utilisez /ws pour le streaming."}
+    return {
+        "message": "MM Server Reforged est en ligne. Utilisez /ws pour le streaming."
+    }
 
 
 @app.get("/skeleton")
@@ -56,7 +58,7 @@ async def websocket_endpoint(websocket: WebSocket):
     # Chaque client connecté obtient sa propre instance de lecteur (Player).
     # Cela permet à chaque utilisateur d'être à un moment différent de l'anim si besoin,
     # ou d'avoir ses propres paramètres de lecture.
-    player = AnimationPlayer(anim_data) #
+    player = AnimationPlayer(anim_data)  #
 
     # On lance la lecture
     player.play()
@@ -66,12 +68,12 @@ async def websocket_endpoint(websocket: WebSocket):
     target_frame_time = 0.033
 
     try:
-        last_print_time = time.time()
+        last_print_time = time.perf_counter()
         message_count = 0
         total_elapsed = 0.0
 
         while True:
-            start_process = time.time()
+            start_process = time.perf_counter()
 
             # 1. Mise à jour du temps interne du player
             player.update()
@@ -81,16 +83,22 @@ async def websocket_endpoint(websocket: WebSocket):
             pose_bytes = player.get_current_pose_bytes()
 
             if pose_bytes:
-                elapsed = time.time() - start_process
+                elapsed = time.perf_counter() - start_process
                 message_count += 1
                 total_elapsed += elapsed
 
-                current_time = time.time()
+                current_time = time.perf_counter()
 
                 # Afficher les stats une fois par seconde
                 if current_time - last_print_time >= 1.0:
-                    mean_time = (total_elapsed / message_count) * 1000 if message_count > 0 else 0
-                    print(f"Messages envoyés: {message_count}, Temps moyen: {mean_time:.5f}ms")
+                    mean_time = (
+                        (total_elapsed / message_count) * 1000
+                        if message_count > 0
+                        else 0
+                    )
+                    print(
+                        f"Messages envoyés: {message_count}, Temps moyen: {mean_time:.5f}ms"
+                    )
                     message_count = 0
                     total_elapsed = 0.0
                     last_print_time = current_time
@@ -111,7 +119,9 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"Erreur inattendue : {e}")
         await websocket.close()
 
+
 if __name__ == "__main__":
     import uvicorn
+
     # Lance le serveur sur localhost:8000
     uvicorn.run(app, host="0.0.0.0", port=8000)

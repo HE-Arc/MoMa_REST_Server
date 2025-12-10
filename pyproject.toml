@@ -6,9 +6,9 @@ readme = "README.md"
 requires-python = "~=3.13.0"
 dependencies = [
     "fastapi>=0.124.0",
-    "momafksolver",
+    "momafksolverproject",
     "uvicorn[standard]>=0.38.0",
 ]
 
 [tool.uv.sources]
-momafksolver = { path = "../MoMa FK Solver" }
+momafksolverproject = { path = "../MoMa FK Solver", editable = true }
