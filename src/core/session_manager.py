@@ -8,6 +8,7 @@ from .engine import AnimationEngine
 from .interfaces import AnimatorInterface
 
 logger = logging.getLogger("SessionManager")
+logger.setLevel(logging.DEBUG)
 
 
 class AnimationSession:
@@ -78,6 +79,7 @@ class AnimationSession:
     async def start(self):
         """Démarre le calcul et la diffusion"""
         self.engine.start()
+
         self.broadcaster_task = asyncio.create_task(self.broadcast_loop())
         logger.info(f"Session {self.session_id} démarrée.")
 
@@ -124,6 +126,8 @@ class AnimationSession:
         Boucle IO haute performance :
         Lit l'index depuis la Queue -> Lit la RAM partagée -> Envoie les bytes
         """
+        logger.info("Boucle de broadcast démarrée.")
+
         loop = asyncio.get_running_loop()
 
         while True:

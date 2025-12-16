@@ -39,7 +39,7 @@ class FastFKAnimator(AnimatorInterface):
         )
 
         matrices = self.anim_data.get_pose_at_time_numba(
-            self.t, target_array, loop=True
+            self.t, target_array, loop=True, local=False
         )
 
         if matrices is None:
