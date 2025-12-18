@@ -1,0 +1,168 @@
+@startuml
+skinparam style strictuml
+skinparam sequenceMessageAlign center
+skinparam MaxMessageSize 300
+autonumber
+
+actor "Client (Web/3D)" as Client
+box "Processus Principal (FastAPI / Asyncio)" #E6F3FF
+    participant "API Routes\n(main.py)" as API
+    participant "SessionManager\n(AnimationSession)" as Session
+    participant "Broadcaster Task\n(Asyncio Loop)" as Broadcast
+end box
+
+box "Communication Inter-Processus (IPC)" #F0F0F0
+    queue "Command Pipe\n(Duplex Connection)" as Pipe
+    queue "Frame Queue\n(mp.Queue)" as Queue
+    database "Shared Memory\n(RAM /dev/shm)" as SHM
+end box
+
+box "Processus Enfant (Engine & Animator)" #FFE6E6
+    participant "AnimationEngine\n(Process)" as Engine
+    participant "Animator\n(FK Logic)" as Animator
+end box
+
+== Phase 1 : Initialisation & Handshake (Poignée de main) ==
+
+note over API, Engine : L'objectif est de démarrer le moteur lourd sans bloquer le serveur Web.
+
+Client -> API : POST /sessions {id, file.fbx}
+activate API
+
+API -> Session : create_session()
+activate Session
+
+Session -> Engine : start() (Spawn Process)
+activate Engine
+
+note right of Engine
+    **Démarrage Processus**
+    Le moteur démarre mais ne connaît pas
+    encore la mémoire partagée.
+    Il charge le fichier d'animation en attendant.
+end note
+
+Engine -> Animator : initialize("file.fbx")
+activate Animator
+Animator --> Engine : return {skeleton_struct, frame_size_bytes}
+deactivate Animator
+
+Engine -> Pipe : send(("init_success", {skeleton, frame_size}, None))
+note right of Pipe : Le moteur envoie les métadonnées réelles\net attend la configuration SHM
+
+Session -> Pipe : poll(timeout=10) -> True
+Session -> Pipe : recv() -> ("init_success", {skeleton, frame_size})
+note left of Session
+    **Attente Active (Thread Executor)**
+    1. **poll(timeout)** : Vérifie si des données arrivent (attend max 10s).
+    2. **recv()** : Lit le message "init_success".
+    Ceci est exécuté dans un thread à part pour ne pas figer l'API.
+end note
+
+Session -> SHM : SharedMemory(create=True, size=frame_size * 3)
+activate SHM
+note right of Session : Allocation RAM (Triple Buffer)
+
+Session -> Pipe : send(("set_shm", shm_name, False))
+Session -> Broadcast : create_task(broadcast_loop)
+activate Broadcast
+
+API --> Client : 200 OK (Session Created)
+deactivate API
+
+Engine -> Pipe : recv() -> ("set_shm", name, _)
+Engine -> SHM : SharedMemory(name=name)
+note right of Engine : Le moteur s'attache à la RAM existante
+
+== Phase 2 : Boucle de Streaming (Zero-Copy Pattern) ==
+
+par Exécution Parallèle (Multiprocessing)
+
+    loop Boucle Moteur (ex: 60Hz)
+        group 1. Traitement Commandes
+            Engine -> Pipe : poll()
+            note right of Engine
+                **Check Non-Bloquant**
+                poll() retourne instantanément True/False.
+                Si False (pas de message), on continue le calcul
+                sans perdre de temps.
+            end note
+            alt Si poll() est True
+                Engine -> Pipe : recv() (Lecture bloquante mais sûre car poll=True)
+                Engine -> Engine : Mise à jour état interne\n(vitesse, pause, seek...)
+            end
+        end
+
+        group 2. Calcul & Écriture RAM
+            Engine -> Animator : write_frame(shm_buffer, offset, dt)
+            activate Animator
+            Animator -> SHM : Écriture directe (numpy buffer protocol)
+            note right of Animator
+                **ZERO-COPY**
+                Les matrices 4x4 sont écrites directement
+                dans la mémoire partagée.
+                Pas de sérialisation JSON.
+            end note
+            deactivate Animator
+        end
+
+        group 3. Synchronisation
+            Engine -> Queue : put(slot_index)
+            note right of Queue : On envoie seulement un entier (ex: 0, 1 ou 2) pour le slot_index.
+        end
+    end
+
+else
+
+    loop Boucle Broadcast (Asyncio)
+        Broadcast -> Queue : await loop.run_in_executor(get)
+        note left of Queue
+                Attend qu'une frame soit prête.
+                Si il reçoit un slot_index -> une frame est disponible
+        end note
+
+        Broadcast -> SHM : memoryview(buf)[offset:end]
+        note left of Broadcast
+            **Lecture Zero-Copy**
+            Crée une vue sur la RAM
+            sans copier les données.
+            Où offset = slot_index * frame_size
+        end note
+
+        Broadcast -> Client : websocket.send_bytes(view)
+        note left of Client : Le client reçoit un ArrayBuffer binaire
+    end
+
+end
+
+== Phase 3 : Commande de Contrôle (Ex: Changement Vitesse) ==
+
+Client -> API : POST /sessions/{id}/speed {speed: 2.0}
+activate API
+
+API -> Session : await set_speed(2.0)
+
+note right of Session
+    **Protection AsyncLock**
+    Empêche deux requêtes simultanées
+    d'écrire dans le Pipe en même temps.
+end note
+
+Session -> Pipe : send(("set_speed", 2.0, False))
+note right of Pipe : False = "Ne pas attendre de réponse" (Fire & Forget)
+
+API --> Client : 200 OK
+deactivate API
+
+note over Engine : Au tour de boucle suivant...
+Engine -> Pipe : poll() -> True
+Engine -> Pipe : recv() -> ("set_speed", 2.0, False)
+Engine -> Engine : current_speed = 2.0
+
+note right of Engine
+    **Application**
+    Le prochain calcul utilisera :
+    dt = target_dt * 2.0
+end note
+
+@enduml
