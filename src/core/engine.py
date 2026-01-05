@@ -4,6 +4,9 @@ import logging
 import traceback
 from multiprocessing.shared_memory import SharedMemory
 
+import numpy as np
+
+from animators.vae_animator import VaeAnimator
 from .interfaces import AnimatorInterface
 
 logging.basicConfig()
@@ -24,6 +27,7 @@ class AnimationEngine(multiprocessing.Process):
         fps: int = 60,
     ):
         super().__init__()
+        self.animator = None
         self.animator_class = animator_class
         self.source_path = source_path
         self.frame_queue = frame_queue
@@ -103,6 +107,15 @@ class AnimationEngine(multiprocessing.Process):
                         # logging.info(f"Moteur: Vitesse changée à {self.current_speed}x")
                         result = self.playback_speed_value
 
+                    elif cmd_name == "set_vae_values":
+                        if self.animator_class is not VaeAnimator:
+                            raise ValueError("Animator is not VaeAnimator, cannot set VAE values.")
+
+                        floats = np.array([float(p) for p in list(args)])
+                        self.animator.anim_data.set_vae_values(floats)
+                        # logging.info(f"Moteur: Vitesse changée à {self.current_speed}x")
+                        result = self.animator.anim_data.vae_values
+
                     else:
                         error = f"Unknown command: {cmd_name}"
 
@@ -121,17 +134,32 @@ class AnimationEngine(multiprocessing.Process):
 
 
     def run(self):
-        animator = None
         try:
+            import importlib
+            import keras
+
+            # 1. Import du module pour charger la définition de classe
+            importlib.import_module("skanym.structures.network.vae")
+            from skanym.structures.network.vae import VAE
+
+            # 2. Enregistrement sous le nom court 'VAE'
+            keras.saving.register_keras_serializable(name="VAE")(VAE)
+
+            # 3. Fallback : Injection directe dans le registre global (Ceinture et bretelles)
+            if hasattr(keras.saving, "get_custom_objects"):
+                keras.saving.get_custom_objects()["VAE"] = VAE
+
+            logger.info("Moteur: Classe VAE enregistrée manuellement (name='VAE').")
+
             # --- PHASE 1 : CHARGEMENT LOURD ---
             logger.info(f"Moteur: Chargement de {self.source_path}...")
 
-            animator = self.animator_class()
-            animator.initialize(self.source_path)
+            self.animator = self.animator_class()
+            self.animator.initialize(self.source_path)
 
             # Récupération des métadonnées
-            skeleton = animator.get_skeleton()
-            self.frame_size = animator.get_memory_size()
+            skeleton = self.animator.get_skeleton()
+            self.frame_size = self.animator.get_memory_size()
 
             # Envoi du succès au parent via le Pipe
             # On envoie : (status, data, error)
@@ -162,7 +190,7 @@ class AnimationEngine(multiprocessing.Process):
 
             while self.running.is_set():
                 # 1. Commandes via Pipe
-                self._process_commands(animator)
+                self._process_commands(self.animator)
 
                 if self.pause_event.is_set():
                     time.sleep(0.1)
@@ -175,7 +203,7 @@ class AnimationEngine(multiprocessing.Process):
 
                 # 3. Écriture DIRECTE (Zero-Copy)
                 # L'animateur écrit ses floats directement dans la RAM partagée
-                animator.write_frame_to_buffer(
+                self.animator.write_frame_to_buffer(
                     shm.buf,
                     dt=self.engine_target_frame_time,
                     offset=offset,

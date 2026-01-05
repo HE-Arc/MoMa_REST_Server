@@ -4,6 +4,8 @@ import logging
 from typing import Dict, Set, Optional, Any
 from multiprocessing.shared_memory import SharedMemory
 from fastapi import WebSocket
+
+from animators.vae_animator import VaeAnimator
 from .engine import AnimationEngine
 from .interfaces import AnimatorInterface
 
@@ -44,6 +46,7 @@ class AnimationSession:
         self.frame_size = 0
 
         # 4. Préparation du Moteur (Processus enfant)
+        self.animator_class = animator_class
         self.engine = AnimationEngine(
             animator_class,
             source_path,
@@ -117,6 +120,15 @@ class AnimationSession:
         await self.execute_command("set_speed", speed, wait_for_response=False)
         logger.info(f"Session {self.session_id} vitesse réglée à {speed}x")
 
+    async def set_vae_values(self, vae_values: list[float]):
+        """Change la vitesse de lecture en temps réel"""
+        # Modification atomique (process-safe)
+        if self.animator_class is not VaeAnimator:
+            return
+
+        await self.execute_command("set_vae_values", vae_values, wait_for_response=False)
+        logger.info(f"Session {self.session_id} vae_values réglée à {vae_values}x")
+
     # ----------------------------
 
     async def start(self):
@@ -132,7 +144,7 @@ class AnimationSession:
             # 1. Attendre que le moteur charge le fichier et renvoie les infos
             # C'est bloquant pour le Pipe, donc on le met dans un thread
             def wait_for_init():
-                if self.parent_conn.poll(timeout=30): # Attendre max 10s
+                if self.parent_conn.poll(timeout=60): # Attendre max 10s
                     return self.parent_conn.recv()
                 raise TimeoutError("Le moteur n'a pas répondu à l'initialisation.")
 
@@ -303,5 +315,12 @@ class SessionManager:
         s = self.get_session(session_id)
         if s:
             return await s.set_speed(speed)
+        else:
+            raise ValueError("Session introuvable")
+
+    async def set_session_vae_values(self, session_id: str, vae_values: list[float]):
+        s = self.get_session(session_id)
+        if s:
+            return await s.set_vae_values(vae_values)
         else:
             raise ValueError("Session introuvable")

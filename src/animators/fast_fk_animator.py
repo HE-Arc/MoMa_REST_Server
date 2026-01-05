@@ -11,7 +11,7 @@ class FastFKAnimator(AnimatorInterface):
     def __init__(self):
         self.anim_data: FastFkSolver = None
         self.t = 0.0
-        self.num_bones = 50  # Augmentons un peu pour l'exemple
+        self.num_bones = 50
         # 16 floats (matrice 4x4) * 4 octets (float32)
         self.bone_size_bytes = 4 * 4 * np.dtype(np.float64).itemsize
         self.total_size = self.num_bones * self.bone_size_bytes

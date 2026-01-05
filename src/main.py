@@ -1,13 +1,15 @@
 import logging
 import multiprocessing
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 
 from animators.fast_fk_animator import FastFKAnimator
+from animators.vae_animator import VaeAnimator
 from core.session_manager import SessionManager
 
 ANIMATION_DIR = "../assets/animations"
@@ -23,10 +25,14 @@ manager = SessionManager()
 # Data model for session creation request
 class SessionCreateRequest(BaseModel):
     session_id: str
+    session_type: str = "FK"  # ex: "FK", "VAE", etc.
     animation_file: str  # ex: "Walking.fbx"
 
 class SpeedRequest(BaseModel):
     playback_speed: float
+
+class VaeValuesRequest(BaseModel):
+    vae_values: Annotated[list[float], Query(min_length=3, max_length=3)]
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -71,9 +77,18 @@ async def create_session(req: SessionCreateRequest):
     """Crée une nouvelle session d'animation (lance le process)"""
     try:
         # TODO : Implement later a switch case to choose different animator types
-        session = manager.create_session(
-            req.session_id, FastFKAnimator, f"{ANIMATION_DIR}/{req.animation_file}"
-        )
+        match req.session_type:
+            case "FK":
+                session = manager.create_session(
+                    req.session_id, FastFKAnimator, f"{ANIMATION_DIR}/{req.animation_file}"
+                )
+            case "VAE":
+                session = manager.create_session(
+                    req.session_id, VaeAnimator, f"{ANIMATION_DIR}/{req.animation_file}"
+                )
+            case _:
+                raise ValueError(f"Unknown session type: {req.session_type}")
+
         await session.start()
         return {"status": "created", "session_id": req.session_id}
     except ValueError as e:
@@ -123,6 +138,14 @@ async def set_speed(session_id: str, req: SpeedRequest):
     try:
         await manager.set_session_speed(session_id, req.playback_speed)
         return {"status": "updated", "session_id": session_id, "speed": req.playback_speed}
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+
+@app.post("/sessions/{session_id}/vae_values")
+async def set_vae_values(session_id: str, req: VaeValuesRequest):
+    try:
+        await manager.set_session_vae_values(session_id, req.vae_values)
+        return {"status": "updated", "session_id": session_id, "vae_values": req.vae_values}
     except ValueError:
         raise HTTPException(status_code=404, detail="Session introuvable")
 

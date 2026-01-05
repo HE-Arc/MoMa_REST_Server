@@ -7,9 +7,11 @@ requires-python = "~=3.13.0"
 dependencies = [
     "fastapi>=0.124.0",
     "momafksolverproject",
+    "skanym",
     "uvicorn[standard]>=0.38.0",
     "websockets>=15.0.1",
 ]
 
 [tool.uv.sources]
 momafksolverproject = { path = "../MoMa_FK_Solver", editable = true }
+skanym = { path = "C:/Users/antoine.lestrade/Documents/Projets/TM MotionMachine/skanym", editable = true }
