@@ -3,7 +3,7 @@ services:
 #    image: gitlab-etu.ing.he-arc.ch:5050/isc/general/motion-machine/api-module/motion-machine:latest
     build: .
     ports:
-      - "80:80"
+      - "8036:8000"
     restart: always
     env_file:
       - .env
