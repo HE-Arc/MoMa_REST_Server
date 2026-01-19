@@ -1,0 +1,64 @@
+@startuml
+skin rose
+skinparam classAttributeIconSize 0
+
+database "MoCap" {
+}
+
+package "Motion Machine" {
+  [Capture Manager]
+  [Motive Manager]
+  [Kinect Manager]
+  [Camera Manager]
+  [Audio Manager]
+  [DB ORM]
+  [Streaming Server]
+}
+
+cloud "Internet" {
+  [Localhost]
+  [Public]
+}
+
+node "Motive" {
+}
+
+node "Unreal Engine" {
+}
+
+node "Viewer Admin" as viewer_admin{
+[Web App] as webapp1
+}
+
+node "Viewer Public" as viewer_public {
+[Web App] as webapp2
+}
+
+package "Viewer Engine" as viewer_eng{
+    component "Viewer Package" as viewer_pkg
+    viewer_pkg .up.> "BabylonJS / ThreeJS" : use
+}
+
+
+
+
+
+MoCap <-down-> [DB ORM]
+
+"Unreal Engine" <--> [Capture Manager]
+
+[Kinect Manager] -up-> Kinects
+[Camera Manager] -up-> Cameras
+[Audio Manager] -up-> Speakers
+[Motive Manager] -up-> Motive
+Motive -up-> "Optitrack Cameras"
+
+[Streaming Server] <-down-> Localhost
+Localhost <-down-> viewer_admin
+
+[Streaming Server] <-down-> Public
+Public <-down-> viewer_public
+
+viewer_pkg <-left- webapp1
+viewer_pkg <-left- webapp2
+@enduml

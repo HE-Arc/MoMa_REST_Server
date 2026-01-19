@@ -1,5 +1,6 @@
 import logging
 import multiprocessing
+import os
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -12,7 +13,8 @@ from animators.fast_fk_animator import FastFKAnimator
 from animators.vae_animator import VaeAnimator
 from core.session_manager import SessionManager
 
-ANIMATION_DIR = "../assets/animations"
+ANIMATION_DIR = os.getenv("ANIMATION_DIR")
+print("Using animation directory:", ANIMATION_DIR)
 
 logging.basicConfig()
 logger = logging.getLogger("FastAPI")

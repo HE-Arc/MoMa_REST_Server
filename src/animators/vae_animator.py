@@ -1,8 +1,10 @@
 import logging
+import os
 from typing import Dict, Any
 from pathlib import Path
 
 import numpy as np
+from skanym.structures.network.vae import VAE
 
 from core.interfaces import AnimatorInterface
 import skanym as sk
@@ -11,6 +13,9 @@ from skanym.animators.vaeAnimator import VaeAnimator as skVaeAnimator
 from skanym.loaders import assimpLoader
 
 from core.utils import list_files
+
+VAE_DIR = os.getenv("VAE_DIR")
+print("Using vae directory:", VAE_DIR)
 
 logging.basicConfig()
 logger = logging.getLogger("VaeAnimator")
@@ -38,7 +43,7 @@ class VaeAnimator(AnimatorInterface):
         loader = sk.loaders.assimpLoader.AssimpLoader(Path(""))
         skeletons = []
         animations = []
-        VAE_ANIMATION_DICT = list_files("../assets/vae", [".fbx"])
+        VAE_ANIMATION_DICT = list_files(VAE_DIR, [".fbx"])
         print(VAE_ANIMATION_DICT)
         # for anim_name in VAE_ANIMATION_DICT:
         #     logger.info("Loading animation {}".format(anim_name))
@@ -67,7 +72,7 @@ class VaeAnimator(AnimatorInterface):
             animations,
             3,
             int(30.0),
-            model_path="../assets/vae/model/cvae_b10.0_l3",
+            model_path= VAE_DIR + "/model/cvae_b10.0_l3",
         )  # MAGIC NUMBERS
 
         # PATCH: Injection de l'attribut manquant 'rotation' pour les anciens modèles

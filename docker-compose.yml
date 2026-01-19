@@ -1,0 +1,11 @@
+services:
+  motion-machine-service:
+#    image: gitlab-etu.ing.he-arc.ch:5050/isc/general/motion-machine/api-module/motion-machine:latest
+    build: .
+    ports:
+      - "80:80"
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./assets:/assets
