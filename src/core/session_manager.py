@@ -120,6 +120,12 @@ class AnimationSession:
         await self.execute_command("set_speed", speed, wait_for_response=False)
         logger.info(f"Session {self.session_id} vitesse réglée à {speed}x")
 
+    async def set_fps(self, fps: float):
+        """Change la vitesse de lecture en temps réel"""
+        # Modification atomique (process-safe)
+        await self.execute_command("set_fps", fps, wait_for_response=False)
+        logger.info(f"Session {self.session_id} fps réglé à {fps} fps")
+
     async def set_vae_values(self, vae_values: list[float]):
         """Change la vitesse de lecture en temps réel"""
         # Modification atomique (process-safe)
@@ -315,6 +321,13 @@ class SessionManager:
         s = self.get_session(session_id)
         if s:
             return await s.set_speed(speed)
+        else:
+            raise ValueError("Session introuvable")
+
+    async def set_session_fps(self, session_id: str, fps: float):
+        s = self.get_session(session_id)
+        if s:
+            return await s.set_fps(fps)
         else:
             raise ValueError("Session introuvable")
 

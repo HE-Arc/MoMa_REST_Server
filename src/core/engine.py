@@ -90,8 +90,9 @@ class AnimationEngine(multiprocessing.Process):
                         result = "ok"
 
                     elif cmd_name == "set_fps":
-                        self.target_frame_time = 1.0 / float(args)
-                        result = self.target_frame_time
+                        self.engine_fps = float(args)
+                        self.engine_target_frame_time = 1.0 / self.engine_fps
+                        result = self.engine_fps
 
                     elif cmd_name == "get_info":
                         result = {

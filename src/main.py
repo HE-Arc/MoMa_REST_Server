@@ -33,6 +33,9 @@ class SessionCreateRequest(BaseModel):
 class SpeedRequest(BaseModel):
     playback_speed: float
 
+class FpsRequest(BaseModel):
+    fps: float
+
 class VaeValuesRequest(BaseModel):
     vae_values: Annotated[list[float], Query(min_length=3, max_length=3)]
 
@@ -140,6 +143,14 @@ async def set_speed(session_id: str, req: SpeedRequest):
     try:
         await manager.set_session_speed(session_id, req.playback_speed)
         return {"status": "updated", "session_id": session_id, "speed": req.playback_speed}
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+
+@app.post("/sessions/{session_id}/fps")
+async def set_fps(session_id: str, req: FpsRequest):
+    try:
+        await manager.set_session_fps(session_id, req.fps)
+        return {"status": "updated", "session_id": session_id, "fps": req.fps}
     except ValueError:
         raise HTTPException(status_code=404, detail="Session introuvable")
 
