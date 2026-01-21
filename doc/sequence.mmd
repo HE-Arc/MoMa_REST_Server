@@ -1,51 +1,9 @@
-# MoMa_REST_Server
-
-## Architecture Simplifiée
-
-Cette architecture est conçue pour garantir des performances temps réel sans bloquer le serveur web lors des calculs lourds d'animation. Elle repose sur le modèle **Producer-Consumer** avec mémoire partagée.
-
-```mermaid
-graph TD
-    Client["👤 Client (Web/Unity/Unreal)"]
-
-    subgraph Server ["Serveur (Python)"]
-        subgraph MainProcess ["Processus Principal (I/O Bound)"]
-            API["📡 FastAPI / WebSocket API<br>(Gère les connexions)"]
-        end
-
-        subgraph IPC ["Zone d'Échange (IPC)"]
-            SHM[("💾 Mémoire Partagée (RAM)<br>Buffers de Frame")]
-            Pipe["🗣️ Pipe de Commande<br>(Contrôle)"]
-        end
-
-        subgraph ChildProcess ["Processus Moteur (CPU Bound)"]
-            Engine["⚙️ Moteur d'Animation<br>(Calcul des os & IK)"]
-        end
-    end
-
-    %% Flux de données
-    Client <==>|"REST (Commandes) / WS (Stream)"| API
-    
-    API -- "1. Envoi Commandes (Vitesse, Pause)" --> Pipe
-    Pipe --> Engine
-    
-    Engine -- "2. Calcul & Écriture Directe" --> SHM
-    
-    SHM -.->|"3. Lecture 'Zero-Copy'"| API
-    
-    style Server fill:#f9f9f9,stroke:#333,stroke-width:2px
-    style SHM fill:#e1f5fe,stroke:#01579b
-    style Engine fill:#ffebee,stroke:#b71c1c
-```
-
-## Architecture Détailée
-```mermaid
 sequenceDiagram
     autonumber
 
     actor Client as "Client (Web/3D)"
 
-box "Processus Principal (FastAPI / Asyncio)" #E6F3FF
+box Aqua "Processus Principal (FastAPI / Asyncio)"
 participant API as "API Routes<br/>(main.py)"
 participant Session as "SessionManager<br/>(AnimationSession)"
 participant Broadcast as "Broadcaster Task<br/>(Asyncio Loop)"
@@ -169,5 +127,3 @@ Engine->>Pipe: recv() -> ("set_speed", 2.0, False)
 Engine->>Engine: current_speed = 2.0
 
 note right of Engine: **Application**<br/>Le prochain calcul utilisera :<br/>dt = target_dt * 2.0
-
-```
