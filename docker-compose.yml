@@ -1,11 +1,27 @@
 services:
-  motion-machine-service:
-#    image: gitlab-etu.ing.he-arc.ch:5050/isc/general/motion-machine/api-module/motion-machine:latest
-    build: .
+  rest-server:
+    image: ghcr.io/he-arc/moma_rest_server/moma-rest-server:latest
     ports:
-      - "8036:8000"
+      - "9810:9810"
     restart: always
     env_file:
       - .env
     volumes:
       - ./assets:/assets
+
+  threejs-client:
+    image: node:20-alpine
+    working_dir: /app
+    env_file:
+      - .env
+    command: >
+      sh -c "
+        apk add --no-cache git &&
+        git clone https://github.com/HE-Arc/MoMa_ThreeJS_Client.git /app &&
+        npm ci &&
+        npm run build &&
+        npm run preview -- --host 0.0.0.0 --port 3000
+      "
+    ports:
+      - "9815:3000"
+    restart: always

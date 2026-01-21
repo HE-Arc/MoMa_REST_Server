@@ -26,7 +26,7 @@ COPY pyproject.toml /app
 RUN uv sync
 
 # Make port 80 available to the world outside this container
-EXPOSE 8000
+EXPOSE 9810
 
 # Add the current directory contents into the container at /app
 COPY /src /app
