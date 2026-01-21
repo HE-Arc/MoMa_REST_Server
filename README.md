@@ -25,7 +25,7 @@ graph LR
         end
 
         subgraph ChildProcess ["Engine Process (CPU Bound)"]
-            Engine["⚙️ Animation Engine<br>(Bone calc & IK)"]
+            Engine["⚙️ Animation Engine<br>(Bone calc & FK / VAE)"]
         end
     end
 
