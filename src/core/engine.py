@@ -13,6 +13,8 @@ logging.basicConfig()
 logger = logging.getLogger("AnimationEngine")
 logger.setLevel(logging.INFO)
 
+# Commandes gérées par le moteur lui-même (infrastructure)
+SYSTEM_COMMANDS = {"seek", "set_fps", "get_info", "set_speed"}
 
 # noinspection D
 class AnimationEngine(multiprocessing.Process):
@@ -67,6 +69,10 @@ class AnimationEngine(multiprocessing.Process):
     def _process_commands(self, animator):
         """
         Vérifie le Pipe. Si des données sont là, on les lit.
+
+        Traitement dynamique des commandes :
+        1. Vérifie si c'est une commande système (set_fps...)
+        2. Sinon, cherche la méthode sur l'animateur via introspection
         """
         # .poll() retourne True immédiatement s'il y a des données, False sinon.
         # C'est non-bloquant et très rapide.
@@ -83,39 +89,62 @@ class AnimationEngine(multiprocessing.Process):
                 error = None
 
                 try:
-                    if cmd_name == "seek":
-                        if hasattr(animator, "seek"):
-                            animator.seek(args)
-                        logging.info(f"Moteur: Seek vers {args}s")
-                        result = "ok"
+                    # 1. Commandes Système (Prioritaires)
+                    if cmd_name in SYSTEM_COMMANDS:
+                        if cmd_name == "set_fps":
+                            self.engine_fps = float(args)
+                            self.engine_target_frame_time = 1.0 / self.engine_fps
+                            result = self.engine_fps
 
-                    elif cmd_name == "set_fps":
-                        self.engine_fps = float(args)
-                        self.engine_target_frame_time = 1.0 / self.engine_fps
-                        result = self.engine_fps
+                        elif cmd_name == "seek":
+                            if hasattr(animator, "seek"):
+                                animator.seek(args)
+                            logging.info(f"Moteur: Seek vers {args}s")
+                            result = "ok"
 
-                    elif cmd_name == "get_info":
-                        result = {
-                            "source": self.source_path,
-                            "fps": self.fps,
-                            "shm": self.shm_name,
-                        }
-                        if hasattr(animator, "current_time"):
-                            result["time"] = animator.current_time
+                        elif cmd_name == "set_speed":
+                            self.playback_speed_value = float(args)
+                            # logging.info(f"Moteur: Vitesse changée à {self.current_speed}x")
+                            result = self.playback_speed_value
 
-                    elif cmd_name == "set_speed":
-                        self.playback_speed_value = float(args)
-                        # logging.info(f"Moteur: Vitesse changée à {self.current_speed}x")
-                        result = self.playback_speed_value
+                        elif cmd_name == "get_info":
+                            result = {
+                                "source": self.source_path,
+                                "fps": self.fps,
+                                "shm": self.shm_name,
+                                "frame_size": self.frame_size
+                            }
+                            # On ajoute l'info de l'animateur s'il a une propriété current_time
+                            if hasattr(animator, "current_time"):
+                                result["time"] = animator.current_time
 
-                    elif cmd_name == "set_vae_values":
-                        if self.animator_class is not VaeAnimator:
-                            raise ValueError("Animator is not VaeAnimator, cannot set VAE values.")
+                    # 2. Commandes Animateur (Dynamique)
+                    elif hasattr(animator, cmd_name):
+                        method = getattr(animator, cmd_name)
 
-                        floats = np.array([float(p) for p in list(args)])
-                        self.animator.anim_data.set_vae_values(floats)
-                        # logging.info(f"Moteur: Vitesse changée à {self.current_speed}x")
-                        result = self.animator.anim_data.vae_values
+                        # VÉRIFICATION DE SÉCURITÉ (@expose)
+                        if getattr(method, "_is_exposed", False):
+
+                            # Invocation dynamique
+                            if isinstance(args, dict):
+                                result = method(**args) # Arguments nommés
+                            elif isinstance(args, list) or isinstance(args, tuple):
+                                result = method(*args) # Arguments positionnels
+                            elif args is None:
+                                result = method() # Sans argument
+                            else:
+                                result = method(args) # Argument unique
+                        else:
+                            error = f"Method '{cmd_name}' exists but is not exposed via @expose"
+
+                    # elif cmd_name == "set_vae_values":
+                    #     if self.animator_class is not VaeAnimator:
+                    #         raise ValueError("Animator is not VaeAnimator, cannot set VAE values.")
+                    #
+                    #     floats = np.array([float(p) for p in list(args)])
+                    #     self.animator.anim_data.set_vae_values(floats)
+                    #     # logging.info(f"Moteur: Vitesse changée à {self.current_speed}x")
+                    #     result = self.animator.anim_data.vae_values
 
                     else:
                         error = f"Unknown command: {cmd_name}"
@@ -190,14 +219,14 @@ class AnimationEngine(multiprocessing.Process):
             buffer_index = 0
 
             while self.running.is_set():
+                start_time = time.perf_counter()
+
                 # 1. Commandes via Pipe
                 self._process_commands(self.animator)
 
                 if self.pause_event.is_set():
                     time.sleep(0.1)
                     continue
-
-                start_time = time.perf_counter()
 
                 # Calcul de l'offset dans le grand bloc mémoire
                 offset = buffer_index * self.frame_size

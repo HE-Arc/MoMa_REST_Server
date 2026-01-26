@@ -17,7 +17,11 @@ services:
     command: >
       sh -c "
         apk add --no-cache git &&
-        git clone https://github.com/HE-Arc/MoMa_ThreeJS_Client.git /app &&
+        if [ -d .git ]; then
+          git pull;
+        else
+          git clone https://github.com/HE-Arc/MoMa_ThreeJS_Client.git .;
+        fi &&
         npm ci &&
         npm run build &&
         npm run preview -- --host 0.0.0.0 --port 3000

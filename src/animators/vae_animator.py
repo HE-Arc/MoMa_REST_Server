@@ -6,7 +6,8 @@ from pathlib import Path
 import numpy as np
 from skanym.structures.network.vae import VAE
 
-from core.interfaces import AnimatorInterface
+from core.env import VAE_DIR
+from core.interfaces import AnimatorInterface, expose
 import skanym as sk
 from skanym.utils.character import remove_fingers
 from skanym.animators.vaeAnimator import VaeAnimator as skVaeAnimator
@@ -14,7 +15,6 @@ from skanym.loaders import assimpLoader
 
 from core.utils import list_files
 
-VAE_DIR = os.getenv("VAE_DIR")
 print("Using vae directory:", VAE_DIR)
 
 logging.basicConfig()
@@ -126,3 +126,9 @@ class VaeAnimator(AnimatorInterface):
         )
 
         np.copyto(target_array, global_mat)
+
+    @expose
+    def set_vae_values(self, floats):
+        self.anim_data.set_vae_values(floats)
+        # logging.info(f"Moteur: Vitesse changée à {self.current_speed}x")
+        return self.anim_data.vae_values

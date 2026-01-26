@@ -1,43 +1,21 @@
 import logging
 import multiprocessing
-import os
 from contextlib import asynccontextmanager
-from typing import Annotated
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
-from pydantic import BaseModel
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from starlette.middleware.cors import CORSMiddleware
 
-from animators.fast_fk_animator import FastFKAnimator
-from animators.vae_animator import VaeAnimator
 from core.session_manager import SessionManager
-
-ANIMATION_DIR = os.getenv("ANIMATION_DIR")
-print("Using animation directory:", ANIMATION_DIR)
+from routers import base_routes, vae_routes
 
 logging.basicConfig()
 logger = logging.getLogger("FastAPI")
 logger.setLevel(logging.DEBUG)
 
 # Singleton for session management
-manager = SessionManager()
+manager: SessionManager = SessionManager()
 
-
-# Data model for session creation request
-class SessionCreateRequest(BaseModel):
-    session_id: str
-    session_type: str = "FK"  # ex: "FK", "VAE", etc.
-    animation_file: str  # ex: "Walking.fbx"
-
-class SpeedRequest(BaseModel):
-    playback_speed: float
-
-class FpsRequest(BaseModel):
-    fps: float
-
-class VaeValuesRequest(BaseModel):
-    vae_values: Annotated[list[float], Query(min_length=3, max_length=3)]
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -64,106 +42,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- API REST ---
-
-@app.get("/animations")
-async def get_all_animations():
-    # Retourne la liste de toutes les animations .bvh dans le dossier ./animations
-    import os
-    try:
-        files = os.listdir(ANIMATION_DIR)
-        bvh_files = [f for f in files if f.lower().endswith(".bvh")]
-        return {"animations": bvh_files}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/sessions")
-async def create_session(req: SessionCreateRequest):
-    """Crée une nouvelle session d'animation (lance le process)"""
-    try:
-        # TODO : Implement later a switch case to choose different animator types
-        match req.session_type:
-            case "FK":
-                session = manager.create_session(
-                    req.session_id, FastFKAnimator, f"{ANIMATION_DIR}/{req.animation_file}"
-                )
-            case "VAE":
-                session = manager.create_session(
-                    req.session_id, VaeAnimator, f"{ANIMATION_DIR}/{req.animation_file}"
-                )
-            case _:
-                raise ValueError(f"Unknown session type: {req.session_type}")
-
-        await session.start()
-        return {"status": "created", "session_id": req.session_id}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.get("/sessions/{session_id}/skeleton")
-async def get_skeleton(session_id: str):
-    """Récupère le squelette statique pour initialiser le client 3D"""
-    session = manager.get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return session.skeleton_structure
-
-
-@app.delete("/sessions/{session_id}")
-async def stop_session(session_id: str):
-    if not manager.get_session(session_id):
-        raise HTTPException(status_code=404, detail="Session not found")
-    await manager.delete_session(session_id)
-    return {"status": "deleted"}
-
-# --- NOUVELLES ROUTES PLAY / PAUSE ---
-
-@app.post("/sessions/{session_id}/pause")
-async def pause_animation(session_id: str):
-    try:
-        manager.pause_session(session_id)
-        return {"status": "paused", "session_id": session_id}
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Session introuvable")
-
-@app.post("/sessions/{session_id}/play")
-async def play_animation(session_id: str):
-    try:
-        manager.resume_session(session_id)
-        return {"status": "playing", "session_id": session_id}
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Session introuvable")
-
-@app.post("/sessions/{session_id}/speed")
-async def set_speed(session_id: str, req: SpeedRequest):
-    """
-    Règle la vitesse de lecture.
-    1.0 = normal, 2.0 = x2, 0.5 = x0.5, -1.0 = Marche arrière
-    """
-    try:
-        await manager.set_session_speed(session_id, req.playback_speed)
-        return {"status": "updated", "session_id": session_id, "speed": req.playback_speed}
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Session introuvable")
-
-@app.post("/sessions/{session_id}/fps")
-async def set_fps(session_id: str, req: FpsRequest):
-    try:
-        await manager.set_session_fps(session_id, req.fps)
-        return {"status": "updated", "session_id": session_id, "fps": req.fps}
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Session introuvable")
-
-@app.post("/sessions/{session_id}/vae_values")
-async def set_vae_values(session_id: str, req: VaeValuesRequest):
-    try:
-        await manager.set_session_vae_values(session_id, req.vae_values)
-        return {"status": "updated", "session_id": session_id, "vae_values": req.vae_values}
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Session introuvable")
-
 
 # --- WEBSOCKET ---
+
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
@@ -189,6 +70,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     except Exception as e:
         print(f"Erreur WS: {e}")
         session.disconnect(websocket)
+
 
 # @app.websocket("/ws")
 # async def websocket_endpoint(websocket: WebSocket):
@@ -278,6 +160,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 #     except Exception as e:
 #         print(f"Erreur inattendue : {e}")
 #         await websocket.close()
+
+app.include_router(base_routes.router)
+app.include_router(vae_routes.router)
 
 if __name__ == "__main__":
     # CRITIQUE POUR NUMBA/NUMPY :

@@ -11,7 +11,7 @@ Cette architecture est conçue pour garantir des performances temps réel sans b
 lourds d'animation. Elle repose sur le modèle **Producer-Consumer** avec mémoire partagée.
 
 ```mermaid
-graph LR
+graph TD
     Client["👤 Client (Web/Unity/Unreal)"]
 
     subgraph Server ["Server (Python)"]

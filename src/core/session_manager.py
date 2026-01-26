@@ -58,37 +58,40 @@ class AnimationSession:
 
         self.broadcaster_task = None
 
-    async def execute_command(self, cmd_name: str, args: Any = None, wait_for_response: bool = True, timeout: float = 2.0) -> Any:
+    async def execute_command(
+        self,
+        cmd_name: str,
+        args: Any = None,
+        wait_for_response: bool = True,
+        timeout: float = 2.0,
+    ) -> Any:
         """
-        Envoie une commande via Pipe de manière sécurisée (Lock) et asynchrone.
+        Point d'entrée unique pour TOUTES les commandes.
+        Envoie la commande au moteur via le Pipe et attend la réponse.
         """
         if not self.engine.is_alive():
-            raise RuntimeError("Moteur arrêté.")
+            raise RuntimeError("Le moteur d'animation est arrêté.")
 
-        # On verrouille l'accès au Pipe pour cette session.
-        # Aucune autre commande ne peut passer tant que celle-ci n'est pas finie (Request/Reply).
         async with self.pipe_lock:
-            try:
-                # 1. Envoi (Send est non-bloquant pour les petites données)
-                # Le tuple contient (cmd, args, expect_response)
+            try :
+                # Envoi (Request)
                 self.parent_conn.send((cmd_name, args, wait_for_response))
 
                 if not wait_for_response:
                     return None
 
-                # 2. Attente Réponse (Recv est BLOQUANT -> run_in_executor)
+                # Réception (Reply) avec timeout
                 loop = asyncio.get_running_loop()
 
-                # On utilise 'poll' avec timeout dans un thread pour éviter de bloquer indéfiniment
-                def receive_with_timeout():
+                def _receive_with_timeout():
                     if self.parent_conn.poll(timeout):
                         return self.parent_conn.recv()
-                    raise TimeoutError("Timeout Pipe")
+                    raise TimeoutError(f"Timeout sur la commande '{cmd_name}'")
 
-                result, error = await loop.run_in_executor(None, receive_with_timeout)
+                result, error = await loop.run_in_executor(None, _receive_with_timeout)
 
                 if error:
-                    raise RuntimeError(f"Erreur Moteur: {error}")
+                    raise RuntimeError(f"Erreur Moteur ({cmd_name}): {error}")
                 return result
 
             except BrokenPipeError:
@@ -99,7 +102,6 @@ class AnimationSession:
     # --- WRAPPERS ---
     async def get_info(self):
         return await self.execute_command("get_info", wait_for_response=True)
-
 
     # --- MÉTHODES DE CONTRÔLE ---
     def pause(self):
@@ -132,7 +134,9 @@ class AnimationSession:
         if self.animator_class is not VaeAnimator:
             return
 
-        await self.execute_command("set_vae_values", vae_values, wait_for_response=False)
+        await self.execute_command(
+            "set_vae_values", vae_values, wait_for_response=False
+        )
         logger.info(f"Session {self.session_id} vae_values réglée à {vae_values}x")
 
     # ----------------------------
@@ -150,14 +154,16 @@ class AnimationSession:
             # 1. Attendre que le moteur charge le fichier et renvoie les infos
             # C'est bloquant pour le Pipe, donc on le met dans un thread
             def wait_for_init():
-                if self.parent_conn.poll(timeout=60): # Attendre max 10s
+                if self.parent_conn.poll(timeout=60):  # Attendre max 10s
                     return self.parent_conn.recv()
                 raise TimeoutError("Le moteur n'a pas répondu à l'initialisation.")
 
             msg_type, data, error = await loop.run_in_executor(None, wait_for_init)
 
             if msg_type == "init_error":
-                raise RuntimeError(f"Le moteur a échoué à charger l'animation : {error}")
+                raise RuntimeError(
+                    f"Le moteur a échoué à charger l'animation : {error}"
+                )
 
             if msg_type != "init_success":
                 raise RuntimeError(f"Réponse moteur invalide : {msg_type}")
@@ -165,7 +171,9 @@ class AnimationSession:
             # 2. Récupération des données
             self.skeleton_structure = data["skeleton"]
             self.frame_size = data["frame_size"]
-            logger.info(f"Session {self.session_id}: Animation chargée. Taille frame: {self.frame_size} bytes")
+            logger.info(
+                f"Session {self.session_id}: Animation chargée. Taille frame: {self.frame_size} bytes"
+            )
 
             # 3. Création de la Shared Memory
             total_mem_size = self.frame_size * self.buffer_count
@@ -177,7 +185,7 @@ class AnimationSession:
 
         except Exception as e:
             logger.error(f"Échec démarrage session: {e}")
-            self.engine.terminate() # Tuer le processus s'il est bloqué
+            self.engine.terminate()  # Tuer le processus s'il est bloqué
             raise e
 
         # --- DÉMARRAGE BROADCAST ---
@@ -267,19 +275,20 @@ class AnimationSession:
                 logger.error(f"Erreur broadcast session {self.session_id}: {e}")
 
 
-# ---------------------------------------------------------------------------
-# C'EST ICI QUE JE L'AVAIS OUBLIÉ : La classe SessionManager
-# ---------------------------------------------------------------------------
-
-
 class SessionManager:
     """
     Singleton (ou instance globale) qui garde une référence vers toutes les sessions actives.
     Permet de créer, récupérer et supprimer des sessions depuis l'API REST.
     """
 
-    def __init__(self):
-        self.sessions: Dict[str, AnimationSession] = {}
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(SessionManager, cls).__new__(cls)
+            # Initialisation unique du dictionnaire de sessions
+            cls._instance.sessions: Dict[str, AnimationSession] = {}
+        return cls._instance
 
     def create_session(
         self, session_id: str, animator_cls: type[AnimatorInterface], path: str
@@ -302,34 +311,51 @@ class SessionManager:
             del self.sessions[session_id]
             logger.info(f"Session {session_id} supprimée du manager.")
 
-    # --- WRAPPERS POUR LE CONTRÔLE ---
-    def pause_session(self, session_id: str):
+    # --- DISPATCHER CENTRAL ---
+    async def dispatch_action(self, session_id: str, command: str, args: Any = None):
         session = self.get_session(session_id)
-        if session:
+        if not session:
+            raise ValueError("Session introuvable")
+
+        # Interception des commandes locales (rapides)
+        if command == "pause":
             session.pause()
-        else:
-            raise ValueError("Session introuvable")
-
-    def resume_session(self, session_id: str):
-        session = self.get_session(session_id)
-        if session:
+            return "paused"
+        elif command == "play":
             session.play()
-        else:
-            raise ValueError("Session introuvable")
+            return "playing"
 
-    async def set_session_speed(self, session_id: str, speed: float):
-        s = self.get_session(session_id)
-        if s:
-            return await s.set_speed(speed)
-        else:
-            raise ValueError("Session introuvable")
+        # Délégation au moteur (via Pipe)
+        return await session.execute_command(command, args)
 
-    async def set_session_fps(self, session_id: str, fps: float):
-        s = self.get_session(session_id)
-        if s:
-            return await s.set_fps(fps)
-        else:
-            raise ValueError("Session introuvable")
+    # --- WRAPPERS POUR LE CONTRÔLE ---
+    # def pause_session(self, session_id: str):
+    #     session = self.get_session(session_id)
+    #     if session:
+    #         session.pause()
+    #     else:
+    #         raise ValueError("Session introuvable")
+    #
+    # def resume_session(self, session_id: str):
+    #     session = self.get_session(session_id)
+    #     if session:
+    #         session.play()
+    #     else:
+    #         raise ValueError("Session introuvable")
+
+    # async def set_session_speed(self, session_id: str, speed: float):
+    #     s = self.get_session(session_id)
+    #     if s:
+    #         return await s.set_speed(speed)
+    #     else:
+    #         raise ValueError("Session introuvable")
+    #
+    # async def set_session_fps(self, session_id: str, fps: float):
+    #     s = self.get_session(session_id)
+    #     if s:
+    #         return await s.set_fps(fps)
+    #     else:
+    #         raise ValueError("Session introuvable")
 
     async def set_session_vae_values(self, session_id: str, vae_values: list[float]):
         s = self.get_session(session_id)

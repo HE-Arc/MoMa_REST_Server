@@ -1,5 +1,15 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Any, Callable, Dict
+
+
+def expose(func: Callable):
+    """
+    Décorateur à placer sur les méthodes de l'animateur.
+    Marque la méthode comme étant appelable publiquement via l'API REST.
+    """
+    func._is_exposed = True
+    return func
+
 
 class AnimatorInterface(ABC):
     @property
@@ -30,7 +40,9 @@ class AnimatorInterface(ABC):
         pass
 
     @abstractmethod
-    def write_frame_to_buffer(self, buffer_view: memoryview, offset: int, dt: float, playback_speed: float):
+    def write_frame_to_buffer(
+        self, buffer_view: memoryview, offset: int, dt: float, playback_speed: float
+    ):
         """
         Écrit les données de la frame directement dans le buffer mémoire fourni.
         'buffer_view' est une vue sur la mémoire partagée globale.
