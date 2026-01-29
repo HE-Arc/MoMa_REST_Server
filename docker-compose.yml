@@ -29,3 +29,24 @@ services:
     ports:
       - "9815:3000"
     restart: always
+
+  babylonjs-client:
+    image: node:20-alpine
+    working_dir: /app
+    env_file:
+      - .env
+    command: >
+      sh -c "
+        apk add --no-cache git &&
+        if [ -d .git ]; then
+          git pull;
+        else
+          git clone https://github.com/HE-Arc/MoMa_BabylonJS_Client.git .;
+        fi &&
+        npm ci &&
+        npm run build &&
+        npm run preview -- --host 0.0.0.0 --port 3000
+      "
+    ports:
+      - "9820:3000"
+    restart: always
