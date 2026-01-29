@@ -72,7 +72,7 @@ class VaeAnimator(AnimatorInterface):
             animations,
             3,
             int(30.0),
-            model_path= VAE_DIR + "/model/cvae_b10.0_l3",
+            model_path=VAE_DIR + "/model/cvae_b10.0_l3",
         )  # MAGIC NUMBERS
 
         # PATCH: Injection de l'attribut manquant 'rotation' pour les anciens modèles
@@ -98,7 +98,10 @@ class VaeAnimator(AnimatorInterface):
         bind_pose_dict = self.skeleton.as_bind_pose_dict()
         # Forced to convert to float type, otherwise the json serializer fails
         r_pos = [[float(x) for x in val["pos"]] for val in bind_pose_dict.values()]
-        r_rot = [[float(x) for x in val["orient"]] for val in bind_pose_dict.values()]
+        r_rot = [
+            [float(x), float(y), float(z), float(w)]
+            for w, x, y, z in (val["orient"] for val in bind_pose_dict.values())
+        ] # Remap wxyz to xyzw
         r_scl = [[1, 1, 1]] * num_bones
 
         return {
@@ -114,9 +117,10 @@ class VaeAnimator(AnimatorInterface):
     def write_frame_to_buffer(
         self, buffer_view: memoryview, offset: int, dt: float, playback_speed: float
     ):
+        # Index 1 contains the local transformation matrices
         # Index 2 contains the global transformation matrices
         output_lst = self.anim_data.step(dt * playback_speed)
-        global_mat = output_lst[2]
+        global_mat = output_lst[1]
 
         target_array = np.ndarray(
             shape=(self.num_bones, 4, 4),
